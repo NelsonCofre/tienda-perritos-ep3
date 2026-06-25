@@ -530,29 +530,44 @@ CloudWatch → Log groups → `/aws/eks/devopseks/cluster`
 - [ ] Paso 9 completado (repo + 7 secrets)
 - [ ] **Learner Lab activo** (credenciales vigentes)
 
-### 15.1 Disparar pipeline backend
+> **Importante:** El pipeline corre desde **GitHub**, no desde CloudShell.  
+> Cambios hechos solo en CloudShell **no** activan CI/CD. Debes hacer commit/push desde tu **PC**.
 
-En tu **PC**:
+### Qué rama dispara el pipeline
+
+| Acción | ¿Dispara CI/CD? |
+|---|---|
+| Push a `main` | **No** |
+| Push a `deploy` | **Sí** (si cambias `backend/` o `frontend/`) |
+| Merge `main` → `deploy` + push | **Sí** |
+
+### 15.1 Sincronizar fixes desde PC (main → deploy)
+
+Los archivos ya incluyen:
+- `k8s/frontend-service.yaml` → LoadBalancer `internet-facing`
+- `backend/server.js` → mensaje `/api/health` para verificar el deploy
+
+En **PowerShell**:
 
 ```powershell
-cd "c:\Users\mipc\Downloads\VPC+ECR+EKS+Deploy\2_CloudShell\deploy-tienda-perritos"
-git checkout deploy
+cd "C:\Users\mipc\Downloads\VPC+ECR+EKS+Deploy\2_CloudShell\deploy-tienda-perritos"
 
-# Edita backend/server.js (cambio visible) luego:
-git add backend/server.js
-git commit -m "ci: test pipeline backend EKS"
+git status
+git add k8s/frontend-service.yaml backend/server.js deploy.sh
+git commit -m "fix: LoadBalancer internet-facing + mensaje health para CI/CD"
+
+git push origin main
+
+git checkout deploy
+git merge main
 git push origin deploy
 ```
+
+> El push a **`deploy`** dispara **CI/CD Backend EKS** (porque cambió `backend/server.js`).
+
+### 15.2 Verificar pipeline en GitHub
 
 GitHub → **Actions** → **CI/CD Backend EKS** → debe quedar **verde**.
-
-### 15.2 Disparar pipeline frontend
-
-```powershell
-git add frontend/index.html
-git commit -m "ci: test pipeline frontend EKS"
-git push origin deploy
-```
 
 ### 15.3 Verificar en AWS
 
@@ -560,30 +575,55 @@ CloudShell:
 
 ```bash
 kubectl rollout status deployment/tienda-backend -n tienda
-kubectl rollout status deployment/tienda-frontend -n tienda
 kubectl get pods -n tienda
 ```
 
-ECR → imágenes nuevas con tag `eks-1`, `eks-2`, etc.
+Navegador — comprobar el deploy del pipeline:
+
+```
+http://<TU-URL-ELB>/api/health
+```
+
+Debe mostrar:
+
+```json
+{"status":"ok","message":"Backend EP3 - deploy via GitHub Actions"}
+```
+
+ECR → `tienda-backend` → imagen nueva tag `eks-1`, `eks-2`, etc.
+
+### 15.4 (Opcional) Pipeline frontend
+
+Edita algo visible en `frontend/index.html`, luego:
+
+```powershell
+git checkout deploy
+git add frontend/index.html
+git commit -m "ci: test pipeline frontend EKS"
+git push origin deploy
+```
+
+GitHub → **CI/CD Frontend EKS** → verde.
 
 | ID | Screenshot |
 |---|---|
 | **E41** | GitHub Actions verde |
 | **E42** | Step Rolling update OK |
 | **E43** | ECR imagen `eks-N` |
-| **E44** | rollout status success |
+| **E44** | `/api/health` con mensaje nuevo + rollout success |
 
 ### Flujo CI/CD
 
 ```
-git push (rama deploy)
+PC: git push rama deploy
     → GitHub Actions
     → docker build + push ECR (tag eks-N)
     → kubectl set image
     → rolling update en EKS
+    → /api/health muestra mensaje nuevo
 ```
 
-> Solo dispara si cambias archivos en `backend/` o `frontend/`. Push a `main` **no** ejecuta CI/CD.
+> Push a `main` solo **no** ejecuta CI/CD. Debe llegar a **`deploy`** (directo o vía merge).
 
 ---
 

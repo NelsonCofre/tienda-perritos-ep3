@@ -4,10 +4,8 @@ metadata:
   name: tienda-frontend
   namespace: tienda
   annotations:
-    # Indicamos que el LB lo maneja el AWS Load Balancer Controller
-    # ervice.beta.kubernetes.io/aws-load-balancer-type: "external"
-    # Forzamos que sea público y (no interno)
-    # service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    # LoadBalancer público (internet-facing) — requerido en EKS reciente
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
 spec:
   type: LoadBalancer
   selector:
