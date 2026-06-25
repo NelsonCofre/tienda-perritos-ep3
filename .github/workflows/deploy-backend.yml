@@ -1,0 +1,73 @@
+name: CI/CD Backend EKS
+
+on:
+  push:
+    branches: ["deploy"]
+    paths:
+      - "backend/**"
+      - "k8s/backend-**"
+      - ".github/workflows/deploy-backend.yml"
+
+jobs:
+  build_push_deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      EKS_NAMESPACE: tienda
+      IMAGE_REPO: tienda-backend
+      DEPLOYMENT: tienda-backend
+      CONTAINER: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar AWS credentials (Learner Lab)
+        run: |
+          mkdir -p ~/.aws
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id=${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws_secret_access_key=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws_session_token=${{ secrets.AWS_SESSION_TOKEN }}
+          EOF
+          cat > ~/.aws/config << EOF
+          [default]
+          region=${{ secrets.AWS_REGION }}
+          output=json
+          EOF
+
+      - name: Verificar identidad AWS
+        run: aws sts get-caller-identity
+
+      - name: Login a ECR
+        run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            docker login --username AWS --password-stdin \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+      - name: Build + Push a ECR
+        run: |
+          TAG="eks-${{ github.run_number }}"
+          IMAGE="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ env.IMAGE_REPO }}:${TAG}"
+          docker build -t "${IMAGE}" ./backend
+          docker push "${IMAGE}"
+          echo "IMAGE=${IMAGE}" >> $GITHUB_ENV
+
+      - name: Instalar kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Conectar kubectl a EKS
+        run: |
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_CLUSTER_NAME }}
+          kubectl get nodes
+
+      - name: Rolling update en EKS
+        run: |
+          kubectl -n ${{ env.EKS_NAMESPACE }} set image deployment/${{ env.DEPLOYMENT }} \
+            ${{ env.CONTAINER }}=${{ env.IMAGE }}
+          kubectl -n ${{ env.EKS_NAMESPACE }} rollout status deployment/${{ env.DEPLOYMENT }} --timeout=300s
